@@ -4,19 +4,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
+	"sync/atomic"
 	"time"
 )
 
-func getRoot(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("got / request\n")
-	io.WriteString(w, "This is my website!\n")
-}
+var inFlight int64
 
-func getDefaultTest(w http.ResponseWriter, r *http.Request) {
+func defaultTestHandler(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
+
+	current := atomic.AddInt64(&inFlight, 1)
+	defer atomic.AddInt64(&inFlight, -1)
+
 	isSlow := rand.Float64() < 	0.1
 
 	var sleepDuration time.Duration
@@ -33,13 +37,18 @@ func getDefaultTest(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("got / default test request\n")
 	fmt.Fprintf(w, "elapsed_time: %d", elapsedTime)
 	io.WriteString(w, "\nTest call\n")
+
+	log.Printf("method=%s path=%s slow=%v elapsed=%s in_flight=%d",
+		r.Method, r.URL.Path, isSlow, elapsedTime, current)
 }
 
 func main() {
-	http.HandleFunc("/", getRoot)
-	http.HandleFunc("/test", getDefaultTest)
+	http.HandleFunc("/test", defaultTestHandler)
+	port := ":3333"
+	log.Printf("pprof available at http://localhost%s/debug/pprof/\n", port)
 
-	err := http.ListenAndServe(":3333", nil)
+	err := http.ListenAndServe(port, nil)
+
 
 	if errors.Is(err, http.ErrServerClosed) {
 		fmt.Printf("server closed\n")
